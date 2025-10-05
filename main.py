@@ -9,7 +9,7 @@ CORS(app)
 
 # ----- Adjust this if your build script names the file differently -----
 # If render-build.sh saves to ./stockfish/stockfish_engine, use that.
-ENGINE_PATH = os.path.join("stockfish", "stockfish-ubuntu-x86-64-avx2")
+ENGINE_PATH = os.path.join("stockfish", "stockfish_engine")
 # ENGINE_PATH = os.path.join("stockfish", "stockfish_engine")
 
 # Sanity check: make sure the binary exists at startup (helps catch bad builds)
