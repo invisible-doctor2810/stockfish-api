@@ -1,26 +1,18 @@
 #!/usr/bin/env bash
-set -e  # stop on error
+set -e
 
-echo "=== Starting Render build ==="
 echo "Installing dependencies..."
-
-# Make sure we have wget and unzip
-apt-get update && apt-get install -y wget unzip
+pip install --upgrade pip
 
 echo "Downloading Stockfish..."
-mkdir -p stockfish
-cd stockfish
-
-# Download latest Stockfish AVX2 build for Linux
-wget https://stockfishchess.org/files/stockfish-ubuntu-x86-64-avx2.zip -O stockfish.zip
+curl -L -o stockfish.zip https://github.com/official-stockfish/Stockfish/releases/download/sf_17/stockfish-ubuntu-x86-64-avx2.zip
 
 echo "Unzipping Stockfish..."
-unzip -o stockfish.zip
-rm stockfish.zip
+unzip stockfish.zip -d stockfish
+chmod +x stockfish/stockfish-ubuntu-x86-64-avx2
+mv stockfish/stockfish-ubuntu-x86-64-avx2 stockfish_engine
 
-echo "Making Stockfish executable..."
-chmod +x stockfish-ubuntu-x86-64-avx2
+echo "Installing Python dependencies..."
+pip install -r requirements.txt
 
-cd ..
-
-echo "=== Stockfish setup complete ==="
+echo "✅ Build complete."
