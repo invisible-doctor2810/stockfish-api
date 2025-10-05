@@ -4,21 +4,16 @@ set -e
 echo "Installing dependencies..."
 pip install --upgrade pip
 
-echo "Downloading Stockfish (Linux AVX2 build)..."
-# Use GitHub API asset endpoint (bypasses HTML redirect issues)
-curl -L -o stockfish.tar \
-  https://api.github.com/repos/official-stockfish/Stockfish/releases/assets/186873196 \
-  -H "Accept: application/octet-stream"
-
-echo "Verifying file size..."
-ls -lh stockfish.tar
-
-echo "Extracting Stockfish..."
+echo "Downloading Stockfish binary..."
 mkdir -p stockfish
-tar -xvf stockfish.tar -C stockfish --wildcards --no-anchored 'stockfish*'
+cd stockfish
 
-chmod +x stockfish/stockfish*
-mv stockfish/stockfish* stockfish_engine
+# Direct link to binary release (not zip/tar)
+curl -L -o stockfish_engine \
+  https://stockfishchess.org/files/stockfish-ubuntu-x86-64-avx2
+
+chmod +x stockfish_engine
+cd ..
 
 echo "Installing Python dependencies..."
 pip install -r requirements.txt
