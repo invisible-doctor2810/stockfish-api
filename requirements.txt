@@ -1,0 +1,8 @@
+flask
+flask-cors
+gunicorn
+stockfish
+requests
+python-chess
+google-generativeai
+dotenv
