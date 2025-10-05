@@ -7,7 +7,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Absolute path to Stockfish executable (update if your filename differs)
-STOCKFISH_PATH = r"C:\Users\mudit\OneDrive\Desktop\Ai_Chess_Bot\stockfish_api\stockfish\stockfish-windows-x86-64-avx2.exe"
+STOCKFISH_PATH = Stockfish(path="./stockfish/stockfish-ubuntu-x86-64-avx2", parameters={"Threads": 2, "Minimum Thinking Time": 30})
 
 # Sanity check — ensures the file exists before launching
 if not os.path.exists(STOCKFISH_PATH):
@@ -34,3 +34,4 @@ def evaluate():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
