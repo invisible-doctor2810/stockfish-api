@@ -1,1 +1,1 @@
-web: gunicorn ai_chess_bot.main:app
+web: gunicorn main:app
