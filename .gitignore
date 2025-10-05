@@ -1,5 +1,5 @@
 __pycache__/
-stockfish/
+stkfish/
 .env
 *.pyc
 *.pyo
