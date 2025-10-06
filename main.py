@@ -34,51 +34,74 @@ def debug():
     except Exception as e:
         return jsonify(error="engine_failure", detail=str(e)), 500
 
-@app.get("/api/eval")
+# --- constants ---
+MAX_DEPTH = 20          # hard ceiling if you still want to allow depth
+MAX_N = 3               # cap number of lines
+MOVE_TIME_MS = 2000     # think ~2s per request on free tier
+ENGINE_THREADS = 1
+ENGINE_HASH_MB = 64
+
+@app.route("/api/eval", methods=["GET"])
 def api_eval():
-    fen = (request.args.get("fen") or "").strip()
-    try:
-        depth = int(request.args.get("depth", 15))
-        n = int(request.args.get("n", 1))
-    except ValueError:
-        return jsonify(error="bad_query", detail="depth and n must be integers"), 400
+    fen = request.args.get("fen", type=str)
+    req_depth = request.args.get("depth", default=12, type=int)
+    req_n = request.args.get("n", default=1, type=int)
 
-    # Clamp to safe bounds on Render free instances
-    depth = max(1, min(depth, 22))
-    n = max(1, min(n, 5))
+    if not fen:
+        return jsonify({"error": "missing fen"}), 400
 
-    # Validate FEN early
+    # Clamp user inputs
+    n = max(1, min(req_n, MAX_N))
+    depth = max(2, min(req_depth, MAX_DEPTH))
+
     try:
         board = chess.Board(fen)
-    except Exception as e:
-        return jsonify(error="bad_fen", detail=str(e), fen=fen), 400
+    except Exception:
+        return jsonify({"error": "invalid_fen"}), 400
 
+    # Spin up engine per request (simple + safe on free tier)
     try:
-        # Start a fresh engine for this request (avoids cross-request races/crashes)
         with chess.engine.SimpleEngine.popen_uci(ENGINE_PATH) as eng:
             eng.configure({
-                "Threads": max(1, (os.cpu_count() or 2) // 2),
-                "Hash": 256
+                "Threads": ENGINE_THREADS,
+                "Hash": ENGINE_HASH_MB,
+                # DO NOT set MultiPV here; python-chess manages it when you pass multipv=
             })
-            # Ask for MultiPV lines in a single call
-            infos = eng.analyse(board, chess.engine.Limit(depth=depth), multipv=n)
 
-            top = []
-            for info in infos:
-                sc = info["score"].pov(board.turn)
-                cp = sc.score(mate_score=100000)
-                pv = " ".join(m.uci() for m in info.get("pv", []))
-                item = {"eval": cp, "pv": pv}
-                if sc.is_mate():
-                    # Report mate distance (positive = mate for side to move)
-                    item["mate"] = sc.mate()
-                top.append(item)
+            # Prefer time-based limit (more predictable on small machines)
+            limit = chess.engine.Limit(time=MOVE_TIME_MS / 1000.0)
 
-        return jsonify(fen=fen, depth=depth, top_moves=top)
+            infos = eng.analyse(board, limit, multipv=n)
 
-    except Exception as e:
-        # Any unexpected engine/IO error
-        return jsonify(error="engine_failure", detail=str(e)), 500
+        top_moves = []
+        for info in infos:
+            # best line (PV) as space-separated UCI
+            pv_moves = " ".join(m.uci() for m in info.get("pv", []))
+            # centipawn or mate score
+            score = info.get("score")
+            if score is None:
+                eval_cp = None
+                mate = None
+            else:
+                try:
+                    eval_cp = score.white().score(mate_score=100000)
+                    mate = score.white().mate()
+                except Exception:
+                    eval_cp = None
+                    mate = None
+
+            top_moves.append({
+                "pv": pv_moves,
+                "eval": eval_cp,
+                "mate": mate
+            })
+
+        return jsonify({"top_moves": top_moves})
+    except concurrent.futures.TimeoutError:
+        return jsonify({"error": "engine_timeout"}), 504
+    except Exception:
+        # last-resort guard
+        return jsonify({"error": "engine_failure"}), 500
 
 if __name__ == "__main__":
     # Local dev only; Render uses Gunicorn with Procfile
