@@ -1,65 +1,85 @@
+# main.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from stockfish import Stockfish
 import os
+import chess
+import chess.engine
 
-# --- create app first ---
 app = Flask(__name__)
 CORS(app)
 
-# --- engine path from your render-build.sh (placed at stockfish/stockfish_engine) ---
-ENGINE_PATH = os.path.join(os.path.dirname(__file__), "stockfish", "stockfish_engine")
+ROOT = os.path.dirname(__file__)
+ENGINE_PATH = os.path.join(ROOT, "stockfish", "stockfish_engine")  # <-- must match your render-build.sh output name
 
-if not os.path.exists(ENGINE_PATH):
-    raise FileNotFoundError(f"Stockfish binary not found at: {ENGINE_PATH}")
-os.chmod(ENGINE_PATH, 0o755)
+def _exists_and_executable(path: str) -> tuple[bool, str]:
+    if not os.path.exists(path):
+        return False, "not_found"
+    try:
+        os.chmod(path, 0o755)  # harmless if already executable
+    except Exception as e:
+        return False, f"chmod_failed:{e!r}"
+    return True, "ok"
 
-# --- init stockfish (do NOT set MultiPV here; python-stockfish manages it) ---
-stockfish = Stockfish(
-    path=ENGINE_PATH,
-    parameters={"Threads": 2, "Minimum Thinking Time": 30}
-)
-
-@app.get("/")
+@app.get("/health")
 def health():
-    return jsonify(ok=True)
+    ok, status = _exists_and_executable(ENGINE_PATH)
+    return jsonify(ok=ok, status=status, engine_path=ENGINE_PATH)
+
+@app.get("/debug")
+def debug():
+    """Tiny engine smoke test at low depth."""
+    ok, status = _exists_and_executable(ENGINE_PATH)
+    if not ok:
+        return jsonify(error="engine_missing", status=status, engine_path=ENGINE_PATH), 500
+    try:
+        board = chess.Board()  # start position
+        with chess.engine.SimpleEngine.popen_uci(ENGINE_PATH) as eng:
+            eng.configure({"Threads": 1, "Hash": 64, "MultiPV": 1})
+            info = eng.analyse(board, chess.engine.Limit(depth=6))
+            score = info["score"].pov(board.turn)
+            pv = " ".join(m.uci() for m in info.get("pv", []))
+        return jsonify(ok=True, eval=score.score(mate_score=100000) if score.is_cp() else None, mate=score.mate(), pv=pv)
+    except Exception as e:
+        print("DEBUG engine error:", repr(e))
+        return jsonify(error="engine_failure", detail=str(e)), 500
 
 @app.get("/api/eval")
 def api_eval():
     fen = (request.args.get("fen") or "").strip()
     try:
-        depth = int(request.args.get("depth", 15))
-        n     = int(request.args.get("n", 1))
+        depth = max(1, min(int(request.args.get("depth", 12)), 20))
+        n     = max(1, min(int(request.args.get("n", 1)), 5))
     except ValueError:
         return jsonify({"error": "depth and n must be integers"}), 400
 
-    depth = max(1, min(depth, 22))
-    n     = max(1, min(n, 5))
-
     if not fen:
         return jsonify({"error": "Missing FEN"}), 400
-    if not stockfish.set_fen_position(fen):
-        return jsonify({"error": "Invalid FEN"}), 400
 
     try:
-        # some versions expose set_depth; if not, it's harmless to skip
-        try:
-            stockfish.set_depth(depth)
-        except Exception:
-            pass
+        board = chess.Board(fen)
+    except Exception:
+        return jsonify({"error": "Invalid FEN"}), 400
 
-        top = stockfish.get_top_moves(n) or []
-        out = []
-        for it in top:
-            pv = (it.get("Line") or it.get("PV") or it.get("Move") or "").strip()
-            out.append({
-                "pv":   pv,
-                "eval": it.get("Centipawn"),
-                "mate": it.get("Mate"),
-            })
-        return jsonify({"top_moves": out})
+    ok, status = _exists_and_executable(ENGINE_PATH)
+    if not ok:
+        return jsonify({"error": "engine_missing", "status": status, "engine_path": ENGINE_PATH}), 500
+
+    try:
+        with chess.engine.SimpleEngine.popen_uci(ENGINE_PATH) as eng:
+            eng.configure({"Threads": 2, "Hash": 128, "MultiPV": n})
+            info_list = eng.analyse(board, chess.engine.Limit(depth=depth), multipv=n)
+            out = []
+            for item in info_list:
+                score = item["score"].pov(board.turn)
+                cp = score.score(mate_score=100000) if score.is_cp() else None
+                mate = score.mate()
+                pv = " ".join(m.uci() for m in item.get("pv", []))
+                out.append({"pv": pv, "eval": cp, "mate": mate})
+            return jsonify({"top_moves": out})
     except Exception as e:
-        print("Engine error:", repr(e))
+        print("API engine error:", repr(e))
         return jsonify({"error": "engine_failure"}), 500
 
-# no __main__ block needed on Render (gunicorn runs main:app)
+if __name__ == "__main__":
+    # local dev
+    app.run(host="0.0.0.0", port=8080)
