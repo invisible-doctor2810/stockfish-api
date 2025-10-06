@@ -3,6 +3,7 @@ from flask_cors import CORS
 import os
 import chess
 import chess.engine
+import concurrent.futures
 
 app = Flask(__name__)
 CORS(app)
@@ -77,22 +78,21 @@ def api_eval():
         for info in infos:
             # best line (PV) as space-separated UCI
             pv_moves = " ".join(m.uci() for m in info.get("pv", []))
-            # centipawn or mate score
+            
+            # centipawn or mate score with a consistent POV
+            # Use side-to-move POV: positive means good for the player to move.
             score = info.get("score")
-            if score is None:
-                eval_cp = None
-                mate = None
-            else:
-                try:
-                    eval_cp = score.white().score(mate_score=100000)
-                    mate = score.white().mate()
-                except Exception:
-                    eval_cp = None
-                    mate = None
-
+            cp = None
+            mate = None
+            if score is not None:
+                pov = score.pov(board.turn)           # or chess.WHITE if you always want White POV
+                mate = pov.mate()
+                if mate is None:
+                    cp = pov.score(mate_score=100000)
+            
             top_moves.append({
                 "pv": pv_moves,
-                "eval": eval_cp,
+                "cp": cp,           # <-- key name your client expects
                 "mate": mate
             })
 
