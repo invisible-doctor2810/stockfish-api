@@ -80,6 +80,41 @@ def api_eval():
         print("API engine error:", repr(e))
         return jsonify({"error": "engine_failure"}), 500
 
+import subprocess, json, base64, pathlib
+
+@app.get("/probe/file")
+def probe_file():
+    p = pathlib.Path(ENGINE_PATH)
+    exists = p.exists()
+    size = p.stat().st_size if exists else 0
+    head = b""
+    if exists:
+        with open(p, "rb") as f:
+            head = f.read(4)  # ELF header should start with 0x7f,'E','L','F'
+    return jsonify(
+        engine_path=str(p),
+        exists=exists,
+        size_bytes=size,
+        head_hex=head.hex(),  # expect: 7f454c46
+        is_elf=head.startswith(b"\x7fELF")
+    )
+
+@app.get("/probe/run")
+def probe_run():
+    # Try to talk UCI to the binary directly (no python-chess involved)
+    try:
+        proc = subprocess.Popen(
+            [ENGINE_PATH],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        out, _ = proc.communicate(input=b"uci\nquit\n", timeout=4)
+        txt = out.decode("utf-8", "replace")
+        return jsonify(ok=True, output=txt[:4000])
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
+
 if __name__ == "__main__":
     # local dev
     app.run(host="0.0.0.0", port=8080)
