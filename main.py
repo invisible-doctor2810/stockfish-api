@@ -58,8 +58,7 @@ def api_eval():
         with chess.engine.SimpleEngine.popen_uci(ENGINE_PATH) as eng:
             eng.configure({
                 "Threads": max(1, (os.cpu_count() or 2) // 2),
-                "Hash": 256,
-                "MultiPV": n
+                "Hash": 256
             })
             # Ask for MultiPV lines in a single call
             infos = eng.analyse(board, chess.engine.Limit(depth=depth), multipv=n)
